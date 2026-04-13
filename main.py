@@ -239,6 +239,7 @@ class Evaluator:
         total_path_length = 0
         total_unique = 0
         total_steps = 0
+        total_deaths = 0  
 
         for _ in range(num_episodes):
             env = MazeEnvironment(self.maze_path)
@@ -263,7 +264,6 @@ class Evaluator:
                 steps += 1
 
             total_turns += steps
-
             
             path_len = len(env.path_history)
             unique_cells = len(set(env.path_history))
@@ -271,11 +271,12 @@ class Evaluator:
             total_path_length += path_len
             total_unique += unique_cells
             total_steps += path_len
+            total_deaths += env.deaths  
 
         self.metrics = {
             "success_rate": success / num_episodes,
             "avg_turns": total_turns / num_episodes,
-            "avg_deaths": 0,
+            "death_rate": total_deaths / (total_turns + 1),  
             "avg_path_length": total_path_length / num_episodes,
             "exploration_efficiency": (
                 total_unique / total_steps if total_steps > 0 else 0
