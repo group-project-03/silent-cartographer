@@ -32,7 +32,7 @@ def ImageToGrid(pixel):
 
 def image_to_maze(path):
     img = Image.open(path).convert("RGB")
-    img = img.resize((512, 512), Image.NEAREST)
+    img = img.resize((1026, 1026), Image.NEAREST)
 
     w, h = img.size
     maze = []
