@@ -15,3 +15,6 @@ uses classical search methods & reinforcement learning to create an intelligent 
 		
 ## step 4: Output file:
         Maze_navigation.png
+
+
+![alt text](https://github.com/group-project-03/silent-cartographer/blob/main/map.PNG)
