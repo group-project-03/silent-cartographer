@@ -222,7 +222,7 @@ def visualizer(maze, path_history, optimal_path, output="Maze_navigation.png"):
         for i in range(len(optimal_path) - 1):
             y1, x1 = optimal_path[i]
             y2, x2 = optimal_path[i + 1]
-            draw.line((x1, y1, x2, y2), fill="red", width=1)
+            draw.line((x1, y1, x2, y2), fill="red", width=3)
 
     img.save(output) 
 
