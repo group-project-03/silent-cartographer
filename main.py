@@ -228,20 +228,25 @@ def visualizer(maze, path_history, optimal_path, output="Maze_navigation.png"):
 
 
 # Evaluator
-class Evaluator: 
+class Evaluator:
 
     def __init__(self, maze_path):
         self.maze_path = maze_path
 
     def evaluate_agent(self, agent: Agent, maze_id: str, num_episodes: int = 5) -> dict:
+
         success = 0
         total_turns = 0
+        total_deaths = 0
+
         total_path_length = 0
-        total_unique = 0
-        total_steps = 0
-        total_deaths = 0  
+        total_unique_cells = 0
+        total_visited_cells = 0
+
+        replanning_times = []
 
         for _ in range(num_episodes):
+
             env = MazeEnvironment(self.maze_path)
 
             agent.maze = env.maze
@@ -254,6 +259,7 @@ class Evaluator:
             steps = 0
 
             while steps < 20000:
+
                 actions = agent.plan_turn(last)
                 last = env.step(actions)
 
@@ -264,22 +270,38 @@ class Evaluator:
                 steps += 1
 
             total_turns += steps
-            
-            path_len = len(env.path_history)
+            total_deaths += env.deaths
+
+            path_length = len(env.path_history)
             unique_cells = len(set(env.path_history))
 
-            total_path_length += path_len
-            total_unique += unique_cells
-            total_steps += path_len
-            total_deaths += env.deaths  
+            total_path_length += path_length
+            total_unique_cells += unique_cells
+            total_visited_cells += path_length
+
+            replanning_times.append(steps)
+
+        total_navigable = sum(row.count(0) for row in env.maze)
 
         self.metrics = {
-            "success_rate": success / num_episodes,
-            "avg_turns": total_turns / num_episodes,
-            "death_rate": total_deaths / (total_turns + 1),  
-            "avg_path_length": total_path_length / num_episodes,
+
+            
+            "success_rate": success / num_episodes,   
+            "avg_path_length": total_path_length / num_episodes if num_episodes else 0,
+            "avg_turns": total_turns / num_episodes if num_episodes else 0,
+            "death_rate": total_deaths / total_turns if total_turns else 0,
+
+            
             "exploration_efficiency": (
-                total_unique / total_steps if total_steps > 0 else 0
+                total_unique_cells / total_visited_cells if total_visited_cells else 0
+            ),
+
+            "map_completeness": (
+                total_unique_cells / total_navigable if total_navigable else 0
+            ),
+
+            "replanning_efficiency": (
+                sum(replanning_times) / len(replanning_times) if replanning_times else 0
             )
         }
 
