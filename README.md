@@ -2,16 +2,19 @@
 uses classical search methods & reinforcement learning to create an intelligent agent that can navigate unknown 64x64 mazes with dangers. Despite incomplete knowledge and environmental risks, the agent effectively explores, creates an internal map, and develops the best solutions.
 
 
-Instructions:
+# Instructions:
 
-step 1: Install all dependencies using:
+## step 1: Install all dependencies using:
       pip install -r requirements.txt
 
-step 2: Run the program:
+## step 2: Run the program:
         python main.py
 
-step 3: Then enter the maze file when prompted:
+## step 3: Then enter the maze file when prompted:
         Enter maze image filename (e.g. MAZE_0.png): MAZE_1.png  		
 		
-step 4: Output file:
+## step 4: Output file:
         Maze_navigation.png
+
+
+![alt text](https://github.com/group-project-03/silent-cartographer/blob/main/map.PNG)
