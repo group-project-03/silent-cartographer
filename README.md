@@ -17,4 +17,4 @@ uses classical search methods & reinforcement learning to create an intelligent 
         Maze_navigation.png
 
 
-![alt text](https://github.com/group-project-03/silent-cartographer/blob/main/maze_animation.gif)
+
