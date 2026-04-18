@@ -13,8 +13,7 @@ uses classical search methods & reinforcement learning to create an intelligent 
 ## step 3: Then enter the maze file when prompted:
         Enter maze image filename (e.g. MAZE_0.png): MAZE_1.png  		
 		
-## step 4: Output file:
-        Maze_navigation.png
+
 
 
 
