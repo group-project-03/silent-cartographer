@@ -168,6 +168,14 @@ class MazeEnvironment:
         self.path_history = [self.pos]
         self.cells_explored = {self.pos}
         return self.pos
+    def get_episode_stats(self):
+        return {
+            "turns_taken": self.turns_taken,
+            "deaths": self.deaths,
+            "confused": self.confused,
+            "cells_explored": len(self.cells_explored),
+            "goal_reached": self.pos == self.goal
+        }
 
     def neighbors(self, r, c):
         out = []
