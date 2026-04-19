@@ -1,15 +1,19 @@
+from typing import List, Tuple, Dict
 from enum import Enum
-from typing import List, Tuple
-from PIL import Image, ImageDraw
+import numpy as np
+from PIL import Image
+import matplotlib.pyplot as plt
 import heapq
+import time
+from collections import defaultdict
 
+# Actions
 class Action(Enum):
     MOVE_UP = 0
     MOVE_DOWN = 1
     MOVE_LEFT = 2
     MOVE_RIGHT = 3
     WAIT = 4
-
 
 # Turn result
 class TurnResult:
@@ -22,179 +26,311 @@ class TurnResult:
         self.teleported = False
         self.actions_executed = 0
 
+# object
+EMPTY = 0
+FIRE = 1
+CONFUSION = 2
+TP_PURPLE = 3
+TP_YELLOW = 4
+TP_GREEN = 5
 
-
-# loading Image → Maze
-def ImageToGrid(pixel):
-    r, g, b = pixel
-    return 1 if (r < 60 and g < 60 and b < 60) else 0
-
-
-def image_to_maze(path):
+# Image processing
+def extract_walls(path: str, grid_size=64, threshold=128):
     img = Image.open(path).convert("RGB")
-    img = img.resize((1026, 1026), Image.NEAREST)
+    arr = np.array(img)
 
-    w, h = img.size
-    maze = []
+    H, W, _ = arr.shape
+    cell_h, cell_w = H / grid_size, W / grid_size
 
-    for y in range(h):
-        row = []
-        for x in range(w):
-            row.append(ImageToGrid(img.getpixel((x, y))))
-        maze.append(row)
+    R, G, B = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+    gray = (np.abs(R - G) < 10) & (np.abs(G - B) < 10)
 
-    start = None
-    goal = None
+    lum = 0.299 * R + 0.587 * G + 0.114 * B
+    lum[~gray] = 255
 
-    for x in range(w):
-        if maze[h - 1][x] == 0:
-            start = (h - 1, x)
-            break
+    vw = np.zeros((grid_size, grid_size + 1), dtype=int)
+    hw = np.zeros((grid_size + 1, grid_size), dtype=int)
 
-    for x in range(w):
-        if maze[0][x] == 0:
-            goal = (0, x)
-            break
+    for r in range(grid_size):
+        y1, y2 = int(r * cell_h), int((r + 1) * cell_h)
+        for c in range(grid_size + 1):
+            x = min(max(int(c * cell_w), 0), W - 1)
+            vw[r, c] = int(np.mean(lum[y1:y2, x]) < threshold)
 
-    return maze, start, goal
+    for c in range(grid_size):
+        x1, x2 = int(c * cell_w), int((c + 1) * cell_w)
+        for r in range(grid_size + 1):
+            y = min(max(int(r * cell_h), 0), H - 1)
+            hw[r, c] = int(np.mean(lum[y, x1:x2]) < threshold)
 
+    return vw, hw
 
+def extract_objects(path: str, grid_size=64):
+    img = Image.open(path).convert("RGB")
+    arr = np.array(img)
 
-# Maze enviroment
+    H, W, _ = arr.shape
+    cell_h, cell_w = H / grid_size, W / grid_size
+
+    obj = np.zeros((grid_size, grid_size), dtype=int)
+
+    for r in range(grid_size):
+        for c in range(grid_size):
+            y1, y2 = int(r * cell_h), int((r + 1) * cell_h)
+            x1, x2 = int(c * cell_w), int((c + 1) * cell_w)
+
+            block = arr[y1:y2, x1:x2]
+            R = block[:, :, 0]
+            G = block[:, :, 1]
+            B = block[:, :, 2]
+
+            # fire
+            if np.any((R > 180) & (G > 80) & (G < 190) & (B < 120)):
+                obj[r, c] = FIRE
+
+            # Confusion teleport
+            elif np.any((R > 170) & (G > 120) & (B < 120)):
+                obj[r, c] = CONFUSION
+
+            # purple teleport
+            elif np.any((R > 100) & (B > 120) & (G < 120)):
+                obj[r, c] = TP_PURPLE
+
+            # yelow star teleport
+            elif np.any((R > 180) & (G > 180) & (B < 120)):
+                obj[r, c] = TP_YELLOW
+
+            # green star teleport
+            elif np.any((G > 160) & (R < 180) & (B < 180)):
+                obj[r, c] = TP_GREEN
+
+    return obj
+
+# Environment
 class MazeEnvironment:
-    def __init__(self, image_path):
-        self.maze, self.start, self.goal = image_to_maze(image_path)
+    def __init__(self, maze_id: str):
+        self.maze_id = maze_id
+        self.vw, self.hw = extract_walls(maze_id, 64)
+        self.obj = extract_objects(maze_id, 64)
+
+        self.size = 64
+        self.start, self.goal = self.find_openings()
+        self.teleports = self.find_teleports()
         self.reset()
+
+    def find_openings(self):
+        openings = []
+
+        for c in range(self.size):
+            if self.hw[0, c] == 0:
+                openings.append((0, c))
+            if self.hw[self.size, c] == 0:
+                openings.append((self.size - 1, c))
+
+        for r in range(self.size):
+            if self.vw[r, 0] == 0:
+                openings.append((r, 0))
+            if self.vw[r, self.size] == 0:
+                openings.append((r, self.size - 1))
+
+        openings = list(dict.fromkeys(openings))
+        if len(openings) < 2:
+            return (0, 0), (63, 63)
+
+        return openings[0], openings[-1]
+
+    def find_teleports(self):
+        groups = defaultdict(list)
+
+        for r in range(self.size):
+            for c in range(self.size):
+                t = self.obj[r, c]
+                if t in (TP_PURPLE, TP_YELLOW, TP_GREEN):
+                    groups[t].append((r, c))
+
+        pairs = {}
+
+        for t, cells in groups.items():
+            if len(cells) >= 2:
+                for i in range(0, len(cells) - 1, 2):
+                    a = cells[i]
+                    b = cells[i + 1]
+                    pairs[a] = b
+                    pairs[b] = a
+
+        return pairs
 
     def reset(self):
         self.pos = self.start
-        self.path_history = [self.pos]
-        
         self.turns_taken = 0
         self.deaths = 0
         self.confused = 0
-        self.cells_explored = set([self.pos])
-
+        self.path_history = [self.pos]
+        self.cells_explored = {self.pos}
         return self.pos
 
-    def step(self, actions: List[Action]) -> TurnResult:
+    def neighbors(self, r, c):
+        out = []
+
+        if r > 0 and self.hw[r, c] == 0:
+            out.append((r - 1, c))
+        if r < self.size - 1 and self.hw[r + 1, c] == 0:
+            out.append((r + 1, c))
+        if c > 0 and self.vw[r, c] == 0:
+            out.append((r, c - 1))
+        if c < self.size - 1 and self.vw[r, c + 1] == 0:
+            out.append((r, c + 1))
+
+        return out
+
+    def step(self, actions: List[Action]):
         result = TurnResult()
 
-        for action in actions:
-            y, x = self.pos
+        for action in actions[:5]:
+            r, c = self.pos
+            nr, nc = r, c
 
             if action == Action.MOVE_UP:
-                ny, nx = y - 1, x
+                nr -= 1
             elif action == Action.MOVE_DOWN:
-                ny, nx = y + 1, x
+                nr += 1
             elif action == Action.MOVE_LEFT:
-                ny, nx = y, x - 1
+                nc -= 1
             elif action == Action.MOVE_RIGHT:
-                ny, nx = y, x + 1
-            else:
-                ny, nx = y, x
+                nc += 1
 
-            if not (0 <= ny < len(self.maze) and 0 <= nx < len(self.maze[0])):
+            if (nr, nc) not in self.neighbors(r, c):
                 result.wall_hits += 1
                 continue
 
-            if self.maze[ny][nx] == 1:
-                result.wall_hits += 1
-                continue
-
-            self.pos = (ny, nx)
+            self.pos = (nr, nc)
             self.path_history.append(self.pos)
             self.cells_explored.add(self.pos)
-
             result.actions_executed += 1
+
+            tile = self.obj[self.pos]
+
+            if tile == FIRE:
+                self.deaths += 1
+                result.is_dead = True
+
+            elif tile == CONFUSION:
+                self.confused += 1
+                result.is_confused = True
+
+            elif self.pos in self.teleports:
+                self.pos = self.teleports[self.pos]
+                self.path_history.append(self.pos)
+                result.teleported = True
 
             if self.pos == self.goal:
                 result.is_goal_reached = True
                 break
 
-        result.current_position = self.pos
         self.turns_taken += 1
-
+        result.current_position = self.pos
         return result
 
-   
-    def get_episode_stats(self) -> dict:
-        return {
-            "turns_taken": self.turns_taken,
-            "deaths": self.deaths,
-            "confused": self.confused,
-            "cells_explored": len(self.cells_explored),
-            "goal_reached": self.pos == self.goal,
-        }
 
-# A* agent
+# A* AGENT
 class Agent:
     def __init__(self):
-        self.maze = None
-        self.start = None
-        self.goal = None
         self.path = []
         self.index = 0
+        self.env = None
 
-    def init_astar(self):
-        def h(a, b):
-            return abs(a[0] - b[0]) + abs(a[1] - b[1])
+        self.best_score = float("inf")
+        self.stable_count = 0
+        self.episodes_to_converge = None
 
-        open_list = [(0, self.start)]
-        parent = {self.start: None}
-        g = {self.start: 0}
+    def heuristic(self, a, b):
+        return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
-        while open_list:
-            _, cur = heapq.heappop(open_list)
+    def tile_cost(self, pos):
+        t = self.env.obj[pos]
+      
+        if t == FIRE:
+            return 5000          
+        elif t == CONFUSION:
+            return 20           
+        elif t in (TP_PURPLE, TP_YELLOW, TP_GREEN):
+            return 1             
+        else:
+            return 1
 
-            if cur == self.goal:
+    def compute_path(self):
+        start = self.env.start
+        goal = self.env.goal
+
+        pq = [(0, start)]
+        g = {start: 0}
+        parent = {}
+
+        while pq:
+            _, cur = heapq.heappop(pq)
+
+            if cur == goal:
                 break
 
-            y, x = cur
+            for nxt in self.env.neighbors(*cur):
+                step_cost = self.tile_cost(nxt)
+                new_cost = g[cur] + step_cost
+                
+                final_nxt = self.env.teleports.get(nxt, nxt)
 
-            for dy, dx in [(-1,0),(1,0),(0,-1),(0,1)]:
-                ny, nx = y + dy, x + dx
+                if final_nxt not in g or new_cost < g[final_nxt]:
+                    g[final_nxt] = new_cost
+                    parent[final_nxt] = cur
 
-                if not (0 <= ny < len(self.maze) and 0 <= nx < len(self.maze[0])):
-                    continue
-                if self.maze[ny][nx] == 1:
-                    continue
+                    priority = new_cost + self.heuristic(final_nxt, goal)
+                    heapq.heappush(pq, (priority, final_nxt))
 
-                nxt = (ny, nx)
-                cost = g[cur] + 1
+        if goal not in g:
+            self.path = [start]
+            return
 
-                if nxt not in g or cost < g[nxt]:
-                    g[nxt] = cost
-                    heapq.heappush(open_list, (cost + h(nxt, self.goal), nxt))
-                    parent[nxt] = cur
+        node = goal
+        path = [goal]
 
-        path = []
-        cur = self.goal
+        while node in parent:
+            node = parent[node]
+            path.append(node)
 
-        if cur in parent:
-            while cur:
-                path.append(cur)
-                cur = parent[cur]
-            path.reverse()
+        self.path = path[::-1]
 
-        self.path = path
+    def update_learning(self):
+        score = len(self.path)
 
-    def plan_turn(self, last_result: TurnResult) -> List[Action]:
+        if score < self.best_score:
+            self.best_score = score
+            self.stable_count = 1
+        elif score == self.best_score:
+            self.stable_count += 1
+        else:
+            self.stable_count = 0
+
+        if self.stable_count >= 3 and self.episodes_to_converge is None:
+            self.episodes_to_converge = 3
+
+    def plan_turn(self, last_result):
+        if not self.path:
+            self.compute_path()
+
         actions = []
 
         for _ in range(5):
             if self.index >= len(self.path) - 1:
                 break
 
-            y1, x1 = self.path[self.index]
-            y2, x2 = self.path[self.index + 1]
+            r1, c1 = self.path[self.index]
+            r2, c2 = self.path[self.index + 1]
             self.index += 1
 
-            if y2 < y1:
+            if r2 < r1:
                 actions.append(Action.MOVE_UP)
-            elif y2 > y1:
+            elif r2 > r1:
                 actions.append(Action.MOVE_DOWN)
-            elif x2 < x1:
+            elif c2 < c1:
                 actions.append(Action.MOVE_LEFT)
             else:
                 actions.append(Action.MOVE_RIGHT)
@@ -202,143 +338,105 @@ class Agent:
         return actions if actions else [Action.WAIT]
 
     def reset_episode(self):
+        self.path = []
         self.index = 0
-        
-
-# Visualizing the Maze path
-def visualizer(maze, path_history, optimal_path, output="Maze_navigation.png"):
-    img = Image.new("RGB", (len(maze[0]), len(maze)), "white")
-    draw = ImageDraw.Draw(img)
-
-    for y in range(len(maze)):
-        for x in range(len(maze[0])):
-            if maze[y][x] == 1:
-                draw.point((x, y), fill="black")
-
-    for y, x in path_history:
-        draw.point((x, y), fill="green")
-
-    if optimal_path:
-        for i in range(len(optimal_path) - 1):
-            y1, x1 = optimal_path[i]
-            y2, x2 = optimal_path[i + 1]
-            draw.line((x1, y1, x2, y2), fill="red", width=3)
-
-    img.save(output) 
-
 
 # Evaluator
 class Evaluator:
-
-    def __init__(self, maze_path):
-        self.maze_path = maze_path
-
-    def evaluate_agent(self, agent: Agent, maze_id: str, num_episodes: int = 5) -> dict:
-
+    def evaluate_agent(self, agent, maze_id, num_episodes=5):
         success = 0
         total_turns = 0
         total_deaths = 0
-
         total_path_length = 0
         total_unique_cells = 0
         total_visited_cells = 0
-
         replanning_times = []
 
         for _ in range(num_episodes):
-
-            env = MazeEnvironment(self.maze_path)
-
-            agent.maze = env.maze
-            agent.start = env.start
-            agent.goal = env.goal
-            agent.init_astar()
+            env = MazeEnvironment(maze_id)
+            agent.env = env
             agent.reset_episode()
 
             last = None
-            steps = 0
+            t0 = time.time()
 
-            while steps < 20000:
-
+            for _ in range(10000):
                 actions = agent.plan_turn(last)
                 last = env.step(actions)
 
                 if last.is_goal_reached:
+                    agent.update_learning()
                     success += 1
                     break
 
-                steps += 1
+            replanning_times.append(time.time() - t0)
 
-            total_turns += steps
+            total_turns += env.turns_taken
             total_deaths += env.deaths
+            total_path_length += len(env.path_history)
+            total_unique_cells += len(set(env.path_history))
+            total_visited_cells += len(env.path_history)
 
-            path_length = len(env.path_history)
-            unique_cells = len(set(env.path_history))
+        total_navigable = env.size * env.size
 
-            total_path_length += path_length
-            total_unique_cells += unique_cells
-            total_visited_cells += path_length
-
-            replanning_times.append(steps)
-
-        total_navigable = sum(row.count(0) for row in env.maze)
-
-        self.metrics = {
-
-            
-            "success_rate": success / num_episodes,   
-            "avg_path_length": total_path_length / num_episodes if num_episodes else 0,
-            "avg_turns": total_turns / num_episodes if num_episodes else 0,
+        return {
+            "success_rate": (success / num_episodes) * 100,
+            "avg_path_length": total_path_length / num_episodes,
+            "avg_turns": total_turns / num_episodes,
             "death_rate": total_deaths / total_turns if total_turns else 0,
-
-            
-            "exploration_efficiency": (
-                total_unique_cells / total_visited_cells if total_visited_cells else 0
-            ),
-
-            "map_completeness": (
-                total_unique_cells / total_navigable if total_navigable else 0
-            ),
-
-            "replanning_efficiency": (
-                sum(replanning_times) / len(replanning_times) if replanning_times else 0
-            )
+            "exploration_efficiency":
+                total_unique_cells / total_visited_cells,
+            "map_completeness":
+                total_unique_cells / total_navigable,
+            "replanning_efficiency":
+                sum(replanning_times) / len(replanning_times),
+            "learning_efficiency":
+                agent.episodes_to_converge
+                if agent.episodes_to_converge is not None
+                else "Still Learning"
         }
 
-        return self.metrics
+# Visualizer
+class Visualizer:
+    def visualize_map(self, env, path=None):
+        plt.figure(figsize=(8, 8))
+        ax = plt.gca()
 
-    def get_metrics(self) -> dict:
-        return self.metrics
+        img = Image.open(env.maze_id)
+        ax.imshow(img, extent=[0, env.size, env.size, 0])
 
+        if path:
+            xs = [p[1] + 0.5 for p in path]
+            ys = [p[0] + 0.5 for p in path]
+            ax.plot(xs, ys, color="lime", lw=2)
+
+        ax.scatter(env.start[1] + 0.5, env.start[0] + 0.5,
+                   color="green", s=80)
+        ax.scatter(env.goal[1] + 0.5, env.goal[0] + 0.5,
+                   color="blue", s=80)
+
+        ax.set_xlim(0, env.size)
+        ax.set_ylim(env.size, 0)
+        ax.set_aspect("equal")
+        ax.axis("off")
+        plt.show()
 
 # main
 if __name__ == "__main__":
-
     maze_file = input("Enter maze image filename: ").strip()
-    env = MazeEnvironment(maze_file)
 
     agent = Agent()
+    evaluator = Evaluator()
 
-    agent.maze = env.maze
-    agent.start = env.start
-    agent.goal = env.goal
-    agent.init_astar()
+    results = evaluator.evaluate_agent(agent, maze_file, 5)
 
-    pos = env.reset()
+    print("\nEvaluation Metrics:")
+    for k, v in results.items():
+        print(f"{k}: {v}")
 
-    last = None
-    steps = 0
+    env = MazeEnvironment(maze_file)
+    agent.env = env
+    agent.compute_path()
 
-    while steps < 10000:
-        actions = agent.plan_turn(last)
-        last = env.step(actions)
-
-        if last.is_goal_reached:            
-            break
-
-        steps += 1
-
-    visualizer(env.maze, env.path_history, agent.path)
-
-    evaluator = Evaluator(maze_file)
-    print(evaluator.evaluate_agent(agent, "training", 3))
+    vis = Visualizer()
+    vis.visualize_map(env, agent.path)
