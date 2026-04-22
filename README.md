@@ -8,10 +8,9 @@ uses classical search methods & reinforcement learning to create an intelligent 
       pip install -r requirements.txt
 
 ## step 2: Run the program:
-        python main.py
+        python project.py
 
-## step 3: Then enter the maze file when prompted:
-        Enter maze image filename (e.g. MAZE_0.png): MAZE_1.png  		
+	
 		
 
 
