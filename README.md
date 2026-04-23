@@ -4,12 +4,22 @@ uses classical search methods & reinforcement learning to create an intelligent 
 
 # Instructions:
 
-## step 1: Install all dependencies using:
-      pip install -r requirements.txt
+## Requirements:
+- Python >= 3.7
+- NumPy
+- Pillow (PIL)
+- Matplotlib 
+- PyTorch
 
-## step 2: Run the program:
-        python project.py
+## Run the script:
+	python silent_cartographer.py
 
+## Input:
+-program will ask "Enter maze image:"
+Input examples: 
+gama_1.png
+MAZE_1.png
+alpha_1.png
 	
 		
 
