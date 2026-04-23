@@ -16,7 +16,7 @@ uses classical search methods & reinforcement learning to create a blind intelli
 
 ## Input:
 
-Enter maze image (ex. MAZE_1.png): 
+	Enter maze image (ex. MAZE_1.png): 
 	
 		
 
