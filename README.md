@@ -15,11 +15,8 @@ uses classical search methods & reinforcement learning to create a blind intelli
 	python silent_cartographer.py
 
 ## Input:
--program will ask "Enter maze image:"
-Input examples: 
-gama_1.png
-MAZE_1.png
-alpha_1.png
+
+Enter maze image (ex. MAZE_1.png): 
 	
 		
 
